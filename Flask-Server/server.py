@@ -174,6 +174,7 @@ def get_vendor_orders_grouped(vendor_id):
 def update_order_status(vendor_id, order_id):
     data = request.get_json()
     new_status = data.get("status")
+    cancel_reason = data.get("cancel_reason", "")
     
     allowed_statuses = ["pending", "confirmed", "preparing", "out for delivery", "delivered", "cancelled"]
     
@@ -183,7 +184,11 @@ def update_order_status(vendor_id, order_id):
     if new_status not in allowed_statuses:
         return jsonify({"error": f"Invalid status. Allowed: {allowed_statuses}"}), 400
     
-    from sqlalchemy import text
+    # If status is cancelled, require a reason
+    if new_status == "cancelled" and not cancel_reason:
+        return jsonify({"error": "Cancellation reason is required"}), 400
+    
+    # Update the order status
     update_query = text("""
     UPDATE orders
     SET order_status = :new_status
@@ -194,6 +199,31 @@ def update_order_status(vendor_id, order_id):
         update_query, 
         {"new_status": new_status, "order_id": order_id, "vendor_id": vendor_id}
     )
+    
+    # Add entry to order_status_history
+    if new_status == "cancelled":
+        # For cancelled status, include the reason
+        history_query = text("""
+        INSERT INTO order_status_history (order_id, status, status_time, reason)
+        VALUES (:order_id, :status, NOW(), :reason)
+        """)
+        
+        db.session.execute(
+            history_query,
+            {"order_id": order_id, "status": new_status, "reason": cancel_reason}
+        )
+    else:
+        # For other status changes, just record the change without reason
+        history_query = text("""
+        INSERT INTO order_status_history (order_id, status, status_time)
+        VALUES (:order_id, :status, NOW())
+        """)
+        
+        db.session.execute(
+            history_query,
+            {"order_id": order_id, "status": new_status}
+        )
+    
     db.session.commit()
     
     if result.rowcount == 0:

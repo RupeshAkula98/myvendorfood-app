@@ -429,3 +429,7 @@ SET vendor_status = 'rejected',
 WHERE vendor_id = 11;
 
 ALTER TABLE menu_items ADD nutritional_info TEXT;
+
+ALTER TABLE order_status_history ADD COLUMN reason TEXT;
+
+SELECT * FROM order_status_history;

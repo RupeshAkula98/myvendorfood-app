@@ -10,6 +10,9 @@ function OrderManagement() {
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [openActionMenu, setOpenActionMenu] = useState(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [orderToCancel, setOrderToCancel] = useState(null);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -64,6 +67,14 @@ function OrderManagement() {
   }, [vendorId]);
 
   const updateOrderStatus = async (orderId, newStatus) => {
+    // If status is cancelled, show the modal to get the reason
+    if (newStatus === "cancelled") {
+      setOrderToCancel({ orderId, newStatus });
+      setShowCancelModal(true);
+      setOpenActionMenu(null);
+      return;
+    }
+    
     try {
       const response = await fetch(`http://localhost:5001/api/vendor/${vendorId}/orders/${orderId}/status`, {
         method: 'POST',
@@ -81,6 +92,43 @@ function OrderManagement() {
             : order
         ));
         setOpenActionMenu(null); // Close the action menu
+      } else {
+        console.error('Failed to update order status');
+      }
+    } catch (error) {
+      console.error('Error updating order status:', error);
+    }
+  };
+  
+  const handleCancelOrder = async () => {
+    if (!orderToCancel || !cancelReason.trim()) {
+      return; // Don't proceed if no reason is provided
+    }
+    
+    try {
+      const response = await fetch(`http://localhost:5001/api/vendor/${vendorId}/orders/${orderToCancel.orderId}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          status: orderToCancel.newStatus,
+          cancel_reason: cancelReason 
+        }),
+      });
+      
+      if (response.ok) {
+        // Update the local state to reflect the change
+        setOrders(orders.map(order => 
+          order.order_id === orderToCancel.orderId 
+            ? { ...order, order_status: orderToCancel.newStatus } 
+            : order
+        ));
+        
+        // Reset and close modal
+        setShowCancelModal(false);
+        setCancelReason("");
+        setOrderToCancel(null);
       } else {
         console.error('Failed to update order status');
       }
@@ -198,25 +246,31 @@ function OrderManagement() {
                       </span>
                     </td>
                     <td className="action-cell">
-                      <FaEllipsisV
-                        className="action-icon"
-                        onClick={() =>
-                          setOpenActionMenu(openActionMenu === idx ? null : idx)
-                        }
-                      />
-                      {openActionMenu === idx && (
-                        <div className="action-menu">
-                          <div className="action-menu-header">Change to:</div>
-                          {statusOptions.filter(status => status !== "ALL").map((status) => (
-                            <button 
-                              key={status}
-                              onClick={() => updateOrderStatus(order.order_id, status)}
-                              className={order.order_status === status ? "active-status" : ""}
-                            >
-                              {status.charAt(0).toUpperCase() + status.slice(1)}
-                            </button>
-                          ))}
-                        </div>
+                      {order.order_status !== "cancelled" ? (
+                        <>
+                          <FaEllipsisV
+                            className="action-icon"
+                            onClick={() =>
+                              setOpenActionMenu(openActionMenu === idx ? null : idx)
+                            }
+                          />
+                          {openActionMenu === idx && (
+                            <div className="action-menu">
+                              <div className="action-menu-header">Change to:</div>
+                              {statusOptions.filter(status => status !== "ALL").map((status) => (
+                                <button 
+                                  key={status}
+                                  onClick={() => updateOrderStatus(order.order_id, status)}
+                                  className={order.order_status === status ? "active-status" : ""}
+                                >
+                                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="cancelled-note">No Access</span>
                       )}
                     </td>
                   </tr>
@@ -226,6 +280,43 @@ function OrderManagement() {
           </div>
         </div>
       </div>
+
+      {/* Cancel Order Modal */}
+      {showCancelModal && (
+        <div className="modal-overlay">
+          <div className="cancel-modal">
+            <h3>Cancellation Reason</h3>
+            <p>Please provide a reason for cancelling this order:</p>
+            <p className="warning-message">Just a heads-up: you can't undo this later.</p>
+
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Enter cancellation reason..."
+              rows={4}
+            />
+            <div className="modal-buttons">
+              <button 
+                className="cancel-btn"
+                onClick={() => {
+                  setShowCancelModal(false);
+                  setCancelReason("");
+                  setOrderToCancel(null);
+                }}
+              >
+                Back
+              </button>
+              <button 
+                className="confirm-btn"
+                onClick={handleCancelOrder}
+                disabled={!cancelReason.trim()}
+              >
+                Confirm Cancellation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
